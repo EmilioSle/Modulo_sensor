@@ -1,0 +1,38 @@
+# Ignorar archivos de entorno
+.env
+.env.local
+.env.test
+
+# Ignorar entorno virtual
+venv/
+.venv/
+
+# Ignorar archivos compilados de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Ignorar archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignorar archivos de testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Ignorar logs
+*.log
+logs/
+
+# Ignorar archivos de base de datos SQLite (si se usan)
+*.db
+*.sqlite3
+
+# Ignorar archivos temporales
+.DS_Store
+Thumbs.db

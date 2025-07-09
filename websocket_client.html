@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cliente WebSocket - Sistema de Sensores</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .controls input, .controls select, .controls button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .controls button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background: #0056b3;
+        }
+        .controls button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .events {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .event {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+            background: white;
+        }
+        .event.system_event {
+            border-left-color: #28a745;
+        }
+        .event.entity_event {
+            border-left-color: #ffc107;
+        }
+        .event.error {
+            border-left-color: #dc3545;
+            background: #f8f9fa;
+        }
+        .event-type {
+            font-weight: bold;
+            color: #495057;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #6c757d;
+            float: right;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .stat-title {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cliente WebSocket - Sistema de Sensores</h1>
+    
+    <div class="container">
+        <h2>Conexión WebSocket</h2>
+        <div class="controls">
+            <input type="text" id="serverUrl" placeholder="ws://localhost:8000/api/v1/ws?channel=sensors" value="ws://localhost:8000/api/v1/ws?channel=sensors">
+            <select id="channelSelect">
+                <option value="general">General</option>
+                <option value="sensors">Sensores</option>
+                <option value="readings">Lecturas</option>
+                <option value="locations">Ubicaciones</option>
+                <option value="anomalies">Anomalías</option>
+                <option value="predictions">Predicciones</option>
+            </select>
+            <input type="text" id="userId" placeholder="ID de usuario (opcional)">
+            <button id="connectBtn">Conectar</button>
+            <button id="disconnectBtn" disabled>Desconectar</button>
+            <button id="clearBtn">Limpiar</button>
+        </div>
+        
+        <div id="status" class="status disconnected">
+            Desconectado
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Eventos en Tiempo Real</h2>
+        <div id="events" class="events"></div>
+    </div>
+
+    <div class="container">
+        <h2>Estadísticas</h2>
+        <div id="stats" class="stats">
+            <div class="stat-card">
+                <div class="stat-title">Eventos Recibidos</div>
+                <div class="stat-value" id="eventCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Canal Actual</div>
+                <div class="stat-value" id="currentChannel">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Estado</div>
+                <div class="stat-value" id="connectionState">Desconectado</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Último Evento</div>
+                <div class="stat-value" id="lastEvent">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let eventCount = 0;
+        
+        const statusEl = document.getElementById('status');
+        const eventsEl = document.getElementById('events');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const serverUrlEl = document.getElementById('serverUrl');
+        const channelSelectEl = document.getElementById('channelSelect');
+        const userIdEl = document.getElementById('userId');
+        
+        // Elementos de estadísticas
+        const eventCountEl = document.getElementById('eventCount');
+        const currentChannelEl = document.getElementById('currentChannel');
+        const connectionStateEl = document.getElementById('connectionState');
+        const lastEventEl = document.getElementById('lastEvent');
+
+        function updateStatus(message, isConnected = false) {
+            statusEl.textContent = message;
+            statusEl.className = `status ${isConnected ? 'connected' : 'disconnected'}`;
+            connectionStateEl.textContent = isConnected ? 'Conectado' : 'Desconectado';
+        }
+
+        function addEvent(data) {
+            eventCount++;
+            const eventEl = document.createElement('div');
+            eventEl.className = `event ${data.type || 'unknown'}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const eventType = data.type || 'unknown';
+            
+            let content = `<span class="event-type">[${eventType.toUpperCase()}]</span>`;
+            content += `<span class="timestamp">${timestamp}</span><br>`;
+            
+            if (data.type === 'entity_event') {
+                content += `<strong>${data.entity_type} ${data.event_type}</strong><br>`;
+                content += `ID: ${data.entity_id}<br>`;
+                content += `Datos: ${JSON.stringify(data.data, null, 2)}`;
+                if (data.metadata) {
+                    content += `<br>Metadata: ${JSON.stringify(data.metadata, null, 2)}`;
+                }
+            } else if (data.type === 'system_event') {
+                content += `<strong>[${data.level.toUpperCase()}]</strong> ${data.message}<br>`;
+                if (data.data && Object.keys(data.data).length > 0) {
+                    content += `Datos: ${JSON.stringify(data.data, null, 2)}`;
+                }
+            } else {
+                content += JSON.stringify(data, null, 2);
+            }
+            
+            eventEl.innerHTML = content;
+            eventsEl.insertBefore(eventEl, eventsEl.firstChild);
+            
+            // Actualizar estadísticas
+            eventCountEl.textContent = eventCount;
+            lastEventEl.textContent = eventType;
+            
+            // Limitar el número de eventos mostrados (mantener solo los últimos 50)
+            while (eventsEl.children.length > 50) {
+                eventsEl.removeChild(eventsEl.lastChild);
+            }
+        }
+
+        function connect() {
+            const url = serverUrlEl.value;
+            const channel = channelSelectEl.value;
+            const userId = userIdEl.value;
+            
+            let wsUrl = `${url}?channel=${channel}`;
+            if (userId) {
+                wsUrl += `&user_id=${userId}`;
+            }
+            
+            try {
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = function(event) {
+                    updateStatus(`Conectado al canal: ${channel}`, true);
+                    currentChannelEl.textContent = channel;
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addEvent(data);
+                    } catch (e) {
+                        addEvent({
+                            type: 'error',
+                            message: 'Error parsing message',
+                            data: event.data
+                        });
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    updateStatus('Conexión cerrada', false);
+                    currentChannelEl.textContent = '-';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    ws = null;
+                };
+                
+                ws.onerror = function(error) {
+                    updateStatus('Error de conexión', false);
+                    addEvent({
+                        type: 'error',
+                        message: 'WebSocket error',
+                        error: error.toString()
+                    });
+                };
+                
+            } catch (error) {
+                updateStatus('Error al conectar', false);
+                addEvent({
+                    type: 'error',
+                    message: 'Connection error',
+                    error: error.toString()
+                });
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function clearEvents() {
+            eventsEl.innerHTML = '';
+            eventCount = 0;
+            eventCountEl.textContent = '0';
+            lastEventEl.textContent = '-';
+        }
+
+        // Event listeners
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        clearBtn.addEventListener('click', clearEvents);
+
+        // Permitir conectar con Enter
+        serverUrlEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !connectBtn.disabled) {
+                connect();
+            }
+        });
+    </script>
+</body>
+</html>

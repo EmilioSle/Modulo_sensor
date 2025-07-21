@@ -6,7 +6,7 @@ from core.settings import get_settings
 
 settings = get_settings()
 
-def run_server(host: str = "127.0.0.1", port: int = 8000, reload: bool = None):
+def run_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = None):
     """Ejecuta el servidor de desarrollo"""
     if reload is None:
         reload = settings.DEBUG

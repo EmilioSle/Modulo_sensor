@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  # Solo la aplicación y base de datos para producción
+  app:
+    build: .
+    container_name: sensor-app-prod
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://sensor_user:sensor_pass@db:5432/sensor_db
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-production-secret-key-change-this}
+    depends_on:
+      - db
+    networks:
+      - sensor-network
+    restart: unless-stopped
+    # Sin volumen montado para producción
+
+  # Base de datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: sensor-db-prod
+    environment:
+      - POSTGRES_DB=sensor_db
+      - POSTGRES_USER=sensor_user
+      - POSTGRES_PASSWORD=sensor_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sensor-network
+    restart: unless-stopped
+    # No exponer puerto en producción por seguridad
+
+volumes:
+  postgres_data:
+
+networks:
+  sensor-network:
+    driver: bridge

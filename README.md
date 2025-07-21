@@ -105,6 +105,24 @@ python manage.py test
 python manage.py shell
 ```
 
+### 3. Uso con Docker 🐳
+```bash
+# Ejecutar con Docker Compose (recomendado)
+docker-compose up --build
+
+# Acceso a servicios:
+# - API: http://localhost:8000
+# - Docs: http://localhost:8000/docs  
+# - Adminer: http://localhost:8080
+
+# Ver documentación completa de Docker
+cat DOCKER.md
+```
+
+### URL: 
+```http://127.0.0.1:8000/docs#/```
+
+
 ## 📈 Mejoras Implementadas
 
 ### ✅ Eliminación de Duplicación

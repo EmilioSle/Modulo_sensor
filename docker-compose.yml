@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Aplicación principal
+  app:
+    build: .
+    container_name: sensor-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://sensor_user:sensor_pass@db:5432/sensor_db
+      - DEBUG=true
+      - SECRET_KEY=dev-secret-key-for-docker
+    depends_on:
+      - db
+    volumes:
+      # Para desarrollo: montar el código fuente
+      - .:/app
+    networks:
+      - sensor-network
+    restart: unless-stopped
+
+  # Base de datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: sensor-db
+    environment:
+      - POSTGRES_DB=sensor_db
+      - POSTGRES_USER=sensor_user
+      - POSTGRES_PASSWORD=sensor_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Opcional: script de inicialización
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - sensor-network
+    restart: unless-stopped
+
+  # Redis (opcional, para cache)
+  redis:
+    image: redis:7-alpine
+    container_name: sensor-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sensor-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Adminer para administrar la base de datos (opcional)
+  adminer:
+    image: adminer
+    container_name: sensor-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - sensor-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  sensor-network:
+    driver: bridge

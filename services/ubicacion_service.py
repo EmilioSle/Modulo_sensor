@@ -3,13 +3,11 @@ Servicio para manejar lógica de negocio de ubicaciones
 """
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from fastapi import BackgroundTasks
 
 from models.ubicacion import Ubicacion
 from repositories.ubicacion_repository import ubicacion_repository
 from repositories.sensor_repository import sensor_repository
 from schemas.ubicacion import UbicacionCreate, UbicacionUpdate
-from core.events import event_emitter, EventType
 
 class UbicacionService:
     """Servicio para manejar lógica de negocio de ubicaciones"""
@@ -18,7 +16,7 @@ class UbicacionService:
         self.repository = ubicacion_repository
         self.sensor_repository = sensor_repository
     
-    def create_ubicacion(self, db: Session, ubicacion_data: UbicacionCreate, background_tasks: BackgroundTasks = None) -> Ubicacion:
+    def create_ubicacion(self, db: Session, ubicacion_data: UbicacionCreate) -> Ubicacion:
         """Crear una nueva ubicación"""
         # Validar que el sensor existe
         if not self.sensor_repository.exists(db, ubicacion_data.sensor_id):
@@ -33,32 +31,8 @@ class UbicacionService:
             raise ValueError(f"Ya existe una ubicación en las coordenadas {ubicacion_data.latitud}, {ubicacion_data.longitud}")
         
         # Crear la ubicación
-        ubicacion_dict = ubicacion_data.model_dump() if hasattr(ubicacion_data, 'model_dump') else ubicacion_data.dict()
-        ubicacion = self.repository.create(db, **ubicacion_dict)
+        return self.repository.create(db, **ubicacion_data.dict())
         
-        if not ubicacion:
-            raise ValueError("Error al crear la ubicación en la base de datos")
-        
-        # Emitir evento de creación usando background task
-        if background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_ubicacion_event,
-                EventType.CREATED,
-                {
-                    "id": ubicacion.id,
-                    "sensor_id": ubicacion.sensor_id,
-                    "latitud": ubicacion.latitud,
-                    "longitud": ubicacion.longitud,
-                    "descripcion": ubicacion.descripcion,
-                    "created_at": ubicacion.created_at.isoformat() if ubicacion.created_at else None,
-                    "updated_at": ubicacion.updated_at.isoformat() if ubicacion.updated_at else None
-                },
-                ubicacion.id,
-                {"action": "create_ubicacion"}
-            )
-        
-        return ubicacion
-    
     def get_ubicacion(self, db: Session, ubicacion_id: int) -> Optional[Ubicacion]:
         """Obtener una ubicación por ID"""
         return self.repository.get_by_id(db, ubicacion_id)
@@ -71,79 +45,22 @@ class UbicacionService:
         """Obtener ubicaciones de un sensor específico"""
         return self.repository.get_by_sensor(db, sensor_id)
     
-    def update_ubicacion(self, db: Session, ubicacion_id: int, ubicacion_data: UbicacionUpdate, background_tasks: BackgroundTasks = None) -> Optional[Ubicacion]:
-        """Actualizar una ubicación"""
-        # Verificar que la ubicación existe primero
-        existing_ubicacion = self.get_ubicacion(db, ubicacion_id)
-        if not existing_ubicacion:
-            return None  # Se maneja en endpoint con 404
+    def update_ubicacion(self, db: Session, ubicacion_id: int, ubicacion_data: UbicacionUpdate) -> Optional[Ubicacion]:
+        """Actualizar ubicación"""
+        # Validar coordenadas si se proporcionan
+        if ubicacion_data.latitud is not None and ubicacion_data.longitud is not None:
+            self._validate_coordinates(ubicacion_data.latitud, ubicacion_data.longitud)
         
-        # Filtrar campos None
-        update_data = {k: v for k, v in ubicacion_data.model_dump().items() if v is not None}
-        if not update_data:
-            return existing_ubicacion  # Sin cambios, devolver ubicación actual
+        # Validar que el sensor existe si se proporciona
+        if ubicacion_data.sensor_id is not None:
+            if not self.sensor_repository.exists(db, ubicacion_data.sensor_id):
+                raise ValueError(f"Sensor con ID {ubicacion_data.sensor_id} no existe")
         
-        # Validar coordenadas si se están actualizando
-        if 'latitud' in update_data or 'longitud' in update_data:
-            lat = update_data.get('latitud', existing_ubicacion.latitud)
-            lng = update_data.get('longitud', existing_ubicacion.longitud)
-            self._validate_coordinates(lat, lng)
+        return self.repository.update(db, ubicacion_id, **ubicacion_data.dict(exclude_unset=True))
         
-        # Validar sensor si se está actualizando
-        if 'sensor_id' in update_data:
-            if not self.sensor_repository.exists(db, update_data['sensor_id']):
-                raise ValueError(f"Sensor con ID {update_data['sensor_id']} no existe")
-        
-        ubicacion = self.repository.update(db, ubicacion_id, **update_data)
-        if not ubicacion:
-            raise ValueError(f"Error al actualizar la ubicación con ID {ubicacion_id}")
-        
-        # Emitir evento de actualización usando background task
-        if ubicacion and background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_ubicacion_event,
-                EventType.UPDATED,
-                {
-                    "id": ubicacion.id,
-                    "sensor_id": ubicacion.sensor_id,
-                    "latitud": ubicacion.latitud,
-                    "longitud": ubicacion.longitud,
-                    "descripcion": ubicacion.descripcion,
-                    "created_at": ubicacion.created_at.isoformat() if ubicacion.created_at else None,
-                    "updated_at": ubicacion.updated_at.isoformat() if ubicacion.updated_at else None,
-                    "updated_fields": list(update_data.keys())
-                },
-                ubicacion.id,
-                {"action": "update_ubicacion", "fields_updated": list(update_data.keys())}
-            )
-        
-        return ubicacion
-    
-    def delete_ubicacion(self, db: Session, ubicacion_id: int, background_tasks: BackgroundTasks = None) -> bool:
+    def delete_ubicacion(self, db: Session, ubicacion_id: int) -> bool:
         """Eliminar una ubicación"""
-        # Obtener datos de la ubicación antes de eliminarla
-        ubicacion = self.get_ubicacion(db, ubicacion_id)
-        
-        deleted = self.repository.delete(db, ubicacion_id)
-        
-        # Emitir evento de eliminación usando background task
-        if deleted and ubicacion and background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_ubicacion_event,
-                EventType.DELETED,
-                {
-                    "id": ubicacion.id,
-                    "sensor_id": ubicacion.sensor_id,
-                    "latitud": ubicacion.latitud,
-                    "longitud": ubicacion.longitud,
-                    "descripcion": ubicacion.descripcion,
-                    "deleted_at": None  # Podríamos agregar un timestamp aquí
-                },
-                ubicacion.id,
-                {"action": "delete_ubicacion"}
-            )
-        
-        return deleted
+        return self.repository.delete(db, ubicacion_id)
     
     def search_ubicaciones(self, db: Session, search_term: str) -> List[Ubicacion]:
         """Buscar ubicaciones por descripción"""

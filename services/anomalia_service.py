@@ -3,13 +3,11 @@ Servicio para manejar lógica de negocio de anomalías
 """
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from fastapi import BackgroundTasks
 
 from models.anomalia import Anomalia
 from repositories.anomalia_repository import anomalia_repository
 from repositories.lectura_repository import lectura_repository
 from schemas.anomalia import AnomaliaCreate, AnomaliaUpdate
-from core.events import event_emitter, EventType
 
 class AnomaliaService:
     """Servicio para manejar lógica de negocio de anomalías"""
@@ -18,7 +16,7 @@ class AnomaliaService:
         self.repository = anomalia_repository
         self.lectura_repository = lectura_repository
     
-    def create_anomalia(self, db: Session, anomalia_data: AnomaliaCreate, background_tasks: BackgroundTasks = None) -> Anomalia:
+    def create_anomalia(self, db: Session, anomalia_data: AnomaliaCreate) -> Anomalia:
         """Crear una nueva anomalía"""
         # Validar que la lectura existe
         if not self.lectura_repository.get_by_id(db, anomalia_data.lectura_id):
@@ -31,31 +29,7 @@ class AnomaliaService:
         self._validate_anomaly_value(anomalia_data.tipo, anomalia_data.valor)
         
         # Crear la anomalía
-        anomalia_dict = anomalia_data.model_dump() if hasattr(anomalia_data, 'model_dump') else anomalia_data.dict()
-        anomalia = self.repository.create(db, **anomalia_dict)
-        
-        if not anomalia:
-            raise ValueError("Error al crear la anomalía en la base de datos")
-        
-        # Emitir evento de creación usando background task
-        if background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_anomalia_event,
-                EventType.CREATED,
-                {
-                    "id": anomalia.id,
-                    "lectura_id": anomalia.lectura_id,
-                    "tipo": anomalia.tipo,
-                    "valor": anomalia.valor,
-                    "descripcion": anomalia.descripcion,
-                    "created_at": anomalia.created_at.isoformat() if anomalia.created_at else None,
-                    "updated_at": anomalia.updated_at.isoformat() if anomalia.updated_at else None
-                },
-                anomalia.id,
-                {"action": "create_anomalia", "severity": anomalia.tipo}
-            )
-        
-        return anomalia
+        return self.repository.create(db, **anomalia_data.dict())
         
     def get_anomalia(self, db: Session, anomalia_id: int) -> Optional[Anomalia]:
         """Obtener una anomalía por ID"""
@@ -81,75 +55,26 @@ class AnomaliaService:
         """Obtener anomalías críticas"""
         return self.repository.get_critical_anomalies(db, threshold)
     
-    def update_anomalia(self, db: Session, anomalia_id: int, anomalia_data: AnomaliaUpdate, background_tasks: BackgroundTasks = None) -> Optional[Anomalia]:
-        """Actualizar una anomalía"""
-        # Verificar que la anomalía existe primero
-        existing_anomalia = self.get_anomalia(db, anomalia_id)
-        if not existing_anomalia:
-            return None  # Se maneja en endpoint con 404
+    def update_anomalia(self, db: Session, anomalia_id: int, anomalia_data: AnomaliaUpdate) -> Optional[Anomalia]:
+        """Actualizar anomalía"""
+        # Validar el tipo de anomalía si se proporciona
+        if anomalia_data.tipo is not None:
+            self._validate_anomaly_type(anomalia_data.tipo)
         
-        # Filtrar campos None
-        update_data = {k: v for k, v in anomalia_data.model_dump().items() if v is not None}
-        if not update_data:
-            return existing_anomalia  # Sin cambios, devolver anomalía actual
+        # Validar el valor de la anomalía si se proporciona
+        if anomalia_data.tipo is not None and anomalia_data.valor is not None:
+            self._validate_anomaly_value(anomalia_data.tipo, anomalia_data.valor)
         
-        # Validar campos si se están actualizando
-        if 'tipo' in update_data:
-            self._validate_anomaly_type(update_data['tipo'])
-        if 'valor' in update_data:
-            tipo = update_data.get('tipo', existing_anomalia.tipo)
-            self._validate_anomaly_value(tipo, update_data['valor'])
+        # Validar que la lectura existe si se proporciona
+        if anomalia_data.lectura_id is not None:
+            if not self.lectura_repository.get_by_id(db, anomalia_data.lectura_id):
+                raise ValueError(f"Lectura con ID {anomalia_data.lectura_id} no existe")
         
-        anomalia = self.repository.update(db, anomalia_id, **update_data)
-        if not anomalia:
-            raise ValueError(f"Error al actualizar la anomalía con ID {anomalia_id}")
+        return self.repository.update(db, anomalia_id, **anomalia_data.dict(exclude_unset=True))
         
-        # Emitir evento de actualización usando background task
-        if anomalia and background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_anomalia_event,
-                EventType.UPDATED,
-                {
-                    "id": anomalia.id,
-                    "lectura_id": anomalia.lectura_id,
-                    "tipo": anomalia.tipo,
-                    "valor": anomalia.valor,
-                    "descripcion": anomalia.descripcion,
-                    "created_at": anomalia.created_at.isoformat() if anomalia.created_at else None,
-                    "updated_at": anomalia.updated_at.isoformat() if anomalia.updated_at else None,
-                    "updated_fields": list(update_data.keys())
-                },
-                anomalia.id,
-                {"action": "update_anomalia", "fields_updated": list(update_data.keys())}
-            )
-        
-        return anomalia
-    
-    def delete_anomalia(self, db: Session, anomalia_id: int, background_tasks: BackgroundTasks = None) -> bool:
+    def delete_anomalia(self, db: Session, anomalia_id: int) -> bool:
         """Eliminar una anomalía"""
-        # Obtener datos de la anomalía antes de eliminarla
-        anomalia = self.get_anomalia(db, anomalia_id)
-        
-        deleted = self.repository.delete(db, anomalia_id)
-        
-        # Emitir evento de eliminación usando background task
-        if deleted and anomalia and background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_anomalia_event,
-                EventType.DELETED,
-                {
-                    "id": anomalia.id,
-                    "lectura_id": anomalia.lectura_id,
-                    "tipo": anomalia.tipo,
-                    "valor": anomalia.valor,
-                    "descripcion": anomalia.descripcion,
-                    "deleted_at": None  # Podríamos agregar un timestamp aquí
-                },
-                anomalia.id,
-                {"action": "delete_anomalia"}
-            )
-        
-        return deleted
+        return self.repository.delete(db, anomalia_id)
     
     def get_anomaly_statistics(self, db: Session) -> dict:
         """Obtener estadísticas de anomalías"""

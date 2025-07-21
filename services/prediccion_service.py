@@ -4,13 +4,11 @@ Servicio para manejo de predicciones de sequía
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from fastapi import BackgroundTasks
 
 from repositories.prediccion_repository import PrediccionRepository
 from models.prediccion import PrediccionSequia
 from schemas.prediccion import PrediccionCreate, PrediccionUpdate
 from core.ml_utils import ml_manager
-from core.events import event_emitter, EventType
 from datetime import datetime
 import logging
 
@@ -18,110 +16,29 @@ logger = logging.getLogger(__name__)
 
 
 class PrediccionService:
-    def __init__(self):
-        self.repository = PrediccionRepository
+    def __init__(self, db: Session):
+        self.db = db
+        self.repository = PrediccionRepository(db)
 
-    def create_prediccion(self, db: Session, prediccion_data: PrediccionCreate, background_tasks: BackgroundTasks = None) -> PrediccionSequia:
+    def create(self, prediccion_data: PrediccionCreate) -> PrediccionSequia:
         """Crear nueva predicción"""
-        # Crear la predicción
-        prediccion_dict = prediccion_data.model_dump() if hasattr(prediccion_data, 'model_dump') else prediccion_data.dict()
-        prediccion = self.repository(db).create(db, **prediccion_dict)
-        
-        if not prediccion:
-            raise ValueError("Error al crear la predicción en la base de datos")
-        
-        # Emitir evento de creación usando background task
-        if background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_prediccion_event,
-                EventType.CREATED,
-                {
-                    "id": prediccion.id,
-                    "ubicacion_id": prediccion.ubicacion_id,
-                    "fecha_prediccion": prediccion.fecha_prediccion.isoformat() if prediccion.fecha_prediccion else None,
-                    "probabilidad": prediccion.probabilidad,
-                    "temperatura_promedio": prediccion.temperatura_promedio,
-                    "humedad_promedio": prediccion.humedad_promedio,
-                    "comentario": prediccion.comentario,
-                    "created_at": prediccion.created_at.isoformat() if prediccion.created_at else None
-                },
-                prediccion.id,
-                {"action": "create_prediccion", "risk_level": "high" if prediccion.probabilidad > 0.7 else "medium" if prediccion.probabilidad > 0.4 else "low"}
-            )
-        
-        return prediccion
+        return self.repository.create(self.db, **prediccion_data.dict())
 
-    def get_prediccion(self, db: Session, prediccion_id: int) -> Optional[PrediccionSequia]:
+    def get_by_id(self, prediccion_id: int) -> Optional[PrediccionSequia]:
         """Obtener predicción por ID"""
-        return self.repository(db).get_by_id(db, prediccion_id)
+        return self.repository.get_by_id(self.db, prediccion_id)
 
-    def get_all_predicciones(self, db: Session, skip: int = 0, limit: int = 100) -> List[PrediccionSequia]:
+    def get_all(self, skip: int = 0, limit: int = 100) -> List[PrediccionSequia]:
         """Obtener todas las predicciones"""
-        return self.repository(db).get_all(db, skip=skip, limit=limit)
+        return self.repository.get_all(self.db, skip=skip, limit=limit)
 
-    def update_prediccion(self, db: Session, prediccion_id: int, prediccion_data: PrediccionUpdate, background_tasks: BackgroundTasks = None) -> Optional[PrediccionSequia]:
+    def update(self, prediccion_id: int, prediccion_data: PrediccionUpdate) -> Optional[PrediccionSequia]:
         """Actualizar predicción"""
-        # Verificar que la predicción existe primero
-        existing_prediccion = self.get_prediccion(db, prediccion_id)
-        if not existing_prediccion:
-            return None  # Se maneja en endpoint con 404
-        
-        # Filtrar campos None
-        update_data = {k: v for k, v in prediccion_data.model_dump().items() if v is not None}
-        if not update_data:
-            return existing_prediccion  # Sin cambios, devolver predicción actual
-        
-        prediccion = self.repository(db).update(db, prediccion_id, **update_data)
-        if not prediccion:
-            raise ValueError(f"Error al actualizar la predicción con ID {prediccion_id}")
-        
-        # Emitir evento de actualización usando background task
-        if prediccion and background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_prediccion_event,
-                EventType.UPDATED,
-                {
-                    "id": prediccion.id,
-                    "ubicacion_id": prediccion.ubicacion_id,
-                    "fecha_prediccion": prediccion.fecha_prediccion.isoformat() if prediccion.fecha_prediccion else None,
-                    "probabilidad": prediccion.probabilidad,
-                    "temperatura_promedio": prediccion.temperatura_promedio,
-                    "humedad_promedio": prediccion.humedad_promedio,
-                    "comentario": prediccion.comentario,
-                    "created_at": prediccion.created_at.isoformat() if prediccion.created_at else None,
-                    "updated_at": prediccion.updated_at.isoformat() if prediccion.updated_at else None,
-                    "updated_fields": list(update_data.keys())
-                },
-                prediccion.id,
-                {"action": "update_prediccion", "fields_updated": list(update_data.keys())}
-            )
-        
-        return prediccion
+        return self.repository.update(self.db, prediccion_id, **prediccion_data.dict(exclude_unset=True))
 
-    def delete_prediccion(self, db: Session, prediccion_id: int, background_tasks: BackgroundTasks = None) -> bool:
+    def delete(self, prediccion_id: int) -> bool:
         """Eliminar predicción"""
-        # Obtener datos de la predicción antes de eliminarla
-        prediccion = self.get_prediccion(db, prediccion_id)
-        
-        deleted = self.repository(db).delete(db, prediccion_id)
-        
-        # Emitir evento de eliminación usando background task
-        if deleted and prediccion and background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_prediccion_event,
-                EventType.DELETED,
-                {
-                    "id": prediccion.id,
-                    "ubicacion_id": prediccion.ubicacion_id,
-                    "fecha_prediccion": prediccion.fecha_prediccion.isoformat() if prediccion.fecha_prediccion else None,
-                    "probabilidad": prediccion.probabilidad,
-                    "deleted_at": None  # Podríamos agregar un timestamp aquí
-                },
-                prediccion.id,
-                {"action": "delete_prediccion"}
-            )
-        
-        return deleted
+        return self.repository.delete(self.db, prediccion_id)
 
     def get_by_ubicacion(self, ubicacion_id: int) -> List[PrediccionSequia]:
         """Obtener predicciones por ubicación"""

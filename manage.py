@@ -12,8 +12,6 @@ sys.path.insert(0, str(project_root))
 
 def main():
     """Función principal para manejar comandos"""
-    print("corriendo en: http://127.0.0.1:8000/docs#/ ")
-
     if len(sys.argv) < 2:
         print("Comandos disponibles:")
         print("  runserver    - Ejecutar el servidor de desarrollo")
@@ -23,8 +21,7 @@ def main():
         return
     
     command = sys.argv[1]
-
-
+    
     if command == "runserver":
         from core.server import run_server
         run_server()

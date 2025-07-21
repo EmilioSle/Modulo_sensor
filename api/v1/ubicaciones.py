@@ -2,7 +2,7 @@
 API Router para ubicaciones
 """
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -15,20 +15,14 @@ router = APIRouter(prefix="/ubicaciones", tags=["Ubicaciones"])
 @router.post("/", response_model=UbicacionResponse, status_code=status.HTTP_201_CREATED)
 def create_ubicacion(
     ubicacion_data: UbicacionCreate,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """Crear una nueva ubicación"""
     try:
-        result = ubicacion_service.create_ubicacion(db, ubicacion_data, background_tasks)
-        if not result:
-            raise HTTPException(status_code=500, detail="Error al crear la ubicación")
-        return result
+        return ubicacion_service.create_ubicacion(db, ubicacion_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
 
 @router.get("/", response_model=List[UbicacionResponse])
 def get_ubicaciones(
@@ -38,11 +32,7 @@ def get_ubicaciones(
     current_user: str = Depends(get_current_user)
 ):
     """Obtener lista de ubicaciones"""
-    try:
-        result = ubicacion_service.get_all_ubicaciones(db, skip=skip, limit=limit)
-        return result if result is not None else []
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
+    return ubicacion_service.get_all_ubicaciones(db, skip=skip, limit=limit)
 
 @router.get("/sensor/{sensor_id}", response_model=List[UbicacionResponse])
 def get_ubicaciones_by_sensor(
@@ -89,33 +79,24 @@ def get_ubicacion(
 def update_ubicacion(
     ubicacion_id: int,
     ubicacion_data: UbicacionUpdate,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """Actualizar una ubicación"""
     try:
-        ubicacion = ubicacion_service.update_ubicacion(db, ubicacion_id, ubicacion_data, background_tasks)
+        ubicacion = ubicacion_service.update_ubicacion(db, ubicacion_id, ubicacion_data)
         if not ubicacion:
             raise HTTPException(status_code=404, detail="Ubicación no encontrada")
         return ubicacion
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
 
 @router.delete("/{ubicacion_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_ubicacion(
     ubicacion_id: int,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """Eliminar una ubicación"""
-    try:
-        if not ubicacion_service.delete_ubicacion(db, ubicacion_id, background_tasks):
-            raise HTTPException(status_code=404, detail="Ubicación no encontrada")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
+    if not ubicacion_service.delete_ubicacion(db, ubicacion_id):
+        raise HTTPException(status_code=404, detail="Ubicación no encontrada")

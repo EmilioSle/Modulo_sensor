@@ -3,7 +3,7 @@ Sistema de autenticación JWT
 """
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import Depends, HTTPException, status, WebSocket, WebSocketException
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -86,27 +86,3 @@ def verify_token(token: str = Depends(oauth2_scheme)) -> dict:
         raise credentials_exception
     
     return payload
-
-def get_current_user_websocket(websocket: WebSocket, token: str = None) -> dict:
-    """
-    Dependencia para autenticar usuarios en WebSocket
-    
-    Nota: Para WebSocket, el token puede venir como:
-    - Parámetro de query: ?token=xxx
-    - Header Authorization (aunque no es estándar en WebSocket)
-    - Como primer mensaje después de conectar
-    """
-    if not token:
-        # En este ejemplo, asumimos que no hay autenticación requerida
-        # En producción, deberías requerir autenticación
-        return {"user_id": "anonymous", "username": "anonymous"}
-    
-    try:
-        payload = auth_manager.verify_token(token)
-        if payload is None:
-            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Token inválido")
-        
-        return payload
-        
-    except JWTError:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Token inválido")

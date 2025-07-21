@@ -10,9 +10,6 @@ from core.settings import get_settings
 from core.database import create_tables
 from api.v1.router import api_router
 from auth.router import router as auth_router 
-from api.v1.test_sensors import test_router 
-from api.v1.test_ubicaciones import test_ubicaciones_router 
-from api.v1.test_lecturas import test_lecturas_router 
 
 
 # Configuración de logging
@@ -56,9 +53,6 @@ def create_app() -> FastAPI:
     # Incluir routers
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/auth")
-    app.include_router(test_router, prefix="/api/v1")
-    app.include_router(test_ubicaciones_router, prefix="/api/v1")
-    app.include_router(test_lecturas_router, prefix="/api/v1")
 
 
     @app.get("/health")

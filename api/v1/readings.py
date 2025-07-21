@@ -2,7 +2,7 @@
 API Router para lecturas
 """
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -15,13 +15,12 @@ router = APIRouter(prefix="/lecturas", tags=["Lecturas"])
 @router.post("/", response_model=LecturaResponse, status_code=status.HTTP_201_CREATED)
 def create_lectura(
     lectura_data: LecturaCreate,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """Crear una nueva lectura"""
     try:
-        return lectura_service.create_lectura(db, lectura_data, background_tasks)
+        return lectura_service.create_lectura(db, lectura_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -60,13 +59,12 @@ def get_lectura(
 def update_lectura(
     lectura_id: int,
     lectura_data: LecturaUpdate,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """Actualizar una lectura"""
     try:
-        lectura = lectura_service.update_lectura(db, lectura_id, lectura_data, background_tasks)
+        lectura = lectura_service.update_lectura(db, lectura_id, lectura_data)
         if not lectura:
             raise HTTPException(status_code=404, detail="Lectura no encontrada")
         return lectura
@@ -76,12 +74,11 @@ def update_lectura(
 @router.delete("/{lectura_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_lectura(
     lectura_id: int,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """Eliminar una lectura"""
-    if not lectura_service.delete_lectura(db, lectura_id, background_tasks):
+    if not lectura_service.delete_lectura(db, lectura_id):
         raise HTTPException(status_code=404, detail="Lectura no encontrada")
 
 @router.get("/sensor/{sensor_id}/stats")

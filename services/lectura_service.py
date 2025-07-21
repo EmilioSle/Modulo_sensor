@@ -1,19 +1,13 @@
 """
 Servicio para manejar lógica de negocio de lecturas
 """
-import asyncio
-import logging
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from fastapi import BackgroundTasks
 
 from models.lectura import Lectura
 from repositories.lectura_repository import lectura_repository
 from repositories.sensor_repository import sensor_repository
 from schemas.lectura import LecturaCreate, LecturaUpdate
-from core.events import event_emitter, lectura_emitter, EventType
-
-logger = logging.getLogger(__name__)
 
 class LecturaService:
     """Servicio para manejar lógica de negocio de lecturas"""
@@ -22,7 +16,7 @@ class LecturaService:
         self.repository = lectura_repository
         self.sensor_repository = sensor_repository
     
-    def create_lectura(self, db: Session, lectura_data: LecturaCreate, background_tasks: BackgroundTasks = None) -> Lectura:
+    def create_lectura(self, db: Session, lectura_data: LecturaCreate) -> Lectura:
         """Crear una nueva lectura"""
         # Validar que el sensor existe
         if not self.sensor_repository.exists(db, lectura_data.sensor_id):
@@ -31,26 +25,7 @@ class LecturaService:
         # Aquí puedes agregar más validaciones de negocio
         self._validate_reading_values(lectura_data)
         
-        lectura = self.repository.create(db, **lectura_data.model_dump())
-        
-        # Emitir evento de creación usando background task
-        if lectura and background_tasks:
-            background_tasks.add_task(
-                event_emitter.emit_lectura_event,
-                EventType.CREATED,
-                {
-                    "id": lectura.id,
-                    "sensor_id": lectura.sensor_id,
-                    "temperatura": lectura.temperatura,
-                    "humedad": lectura.humedad,
-                    "created_at": lectura.created_at.isoformat() if lectura.created_at else None,
-                    "updated_at": lectura.updated_at.isoformat() if lectura.updated_at else None
-                },
-                lectura.id,
-                {"action": "create_lectura", "sensor_id": lectura.sensor_id}
-            )
-        
-        return lectura
+        return self.repository.create(db, **lectura_data.model_dump())
     
     def get_lectura(self, db: Session, lectura_id: int) -> Optional[Lectura]:
         """Obtener una lectura por ID"""
@@ -64,76 +39,27 @@ class LecturaService:
         """Obtener lecturas recientes de un sensor"""
         return self.repository.get_recent_readings(db, sensor_id, hours)
     
-    def update_lectura(self, db: Session, lectura_id: int, lectura_data: LecturaUpdate, background_tasks) -> Optional[Lectura]:
+    def update_lectura(self, db: Session, lectura_id: int, lectura_data: LecturaUpdate) -> Optional[Lectura]:
         """Actualizar una lectura"""
-        try:
-            # Filtrar campos None
-            update_data = {k: v for k, v in lectura_data.model_dump().items() if v is not None}
-            if not update_data:
-                return self.get_lectura(db, lectura_id)
-            
-            # Validar valores si se están actualizando
-            if 'temperatura' in update_data or 'humedad' in update_data:
-                temp_lectura = LecturaCreate(
-                    sensor_id=1,  # Temporal, solo para validación
-                    temperatura=update_data.get('temperatura', 0),
-                    humedad=update_data.get('humedad', 0)
-                )
-                self._validate_reading_values(temp_lectura)
-            
-            lectura = self.repository.update(db, lectura_id, **update_data)
-            
-            if lectura and background_tasks:
-                # Emitir evento de actualización
-                lectura_emitter.emit_update(
-                    background_tasks,
-                    {
-                        "id": lectura.id,
-                        "sensor_id": lectura.sensor_id,
-                        "temperatura": lectura.temperatura,
-                        "humedad": lectura.humedad,
-                        "created_at": lectura.created_at.isoformat() if lectura.created_at else None,
-                        "updated_at": lectura.updated_at.isoformat() if lectura.updated_at else None
-                    },
-                    lectura.id,
-                    {"action": "update_lectura", "sensor_id": lectura.sensor_id}
-                )
-            
-            return lectura
-        except Exception as e:
-            logger.error(f"Error updating lectura {lectura_id}: {e}")
-            raise ValueError(f"Error al actualizar lectura: {str(e)}")
+        # Filtrar campos None
+        update_data = {k: v for k, v in lectura_data.model_dump().items() if v is not None}
+        if not update_data:
+            return self.get_lectura(db, lectura_id)
+        
+        # Validar valores si se están actualizando
+        if 'temperatura' in update_data or 'humedad' in update_data:
+            temp_lectura = LecturaCreate(
+                sensor_id=1,  # Temporal, solo para validación
+                temperatura=update_data.get('temperatura', 0),
+                humedad=update_data.get('humedad', 0)
+            )
+            self._validate_reading_values(temp_lectura)
+        
+        return self.repository.update(db, lectura_id, **update_data)
     
-    def delete_lectura(self, db: Session, lectura_id: int, background_tasks) -> bool:
+    def delete_lectura(self, db: Session, lectura_id: int) -> bool:
         """Eliminar una lectura"""
-        try:
-            # Obtener la lectura antes de eliminarla para el evento
-            lectura = self.get_lectura(db, lectura_id)
-            if not lectura:
-                return False
-                
-            success = self.repository.delete(db, lectura_id)
-            
-            if success and background_tasks:
-                # Emitir evento de eliminación
-                lectura_emitter.emit_delete(
-                    background_tasks,
-                    {
-                        "id": lectura.id,
-                        "sensor_id": lectura.sensor_id,
-                        "temperatura": lectura.temperatura,
-                        "humedad": lectura.humedad,
-                        "created_at": lectura.created_at.isoformat() if lectura.created_at else None,
-                        "updated_at": lectura.updated_at.isoformat() if lectura.updated_at else None
-                    },
-                    lectura.id,
-                    {"action": "delete_lectura", "sensor_id": lectura.sensor_id}
-                )
-            
-            return success
-        except Exception as e:
-            logger.error(f"Error deleting lectura {lectura_id}: {e}")
-            raise ValueError(f"Error al eliminar lectura: {str(e)}")
+        return self.repository.delete(db, lectura_id)
     
     def get_sensor_stats(self, db: Session, sensor_id: int) -> dict:
         """Obtener estadísticas de un sensor"""

@@ -32,7 +32,7 @@ RUN chown -R app:app /app
 USER app
 
 # Exponer el puerto
-EXPOSE 8000
+EXPOSE 6060
 
 # Crear el script de entrada
 COPY --chown=app:app docker-entrypoint.sh /app/docker-entrypoint.sh

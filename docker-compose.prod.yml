@@ -6,7 +6,7 @@ services:
     build: .
     container_name: sensor-app-prod
     ports:
-      - "8000:8000"
+      - "6060:6060"
     environment:
       - DATABASE_URL=postgresql://sensor_user:sensor_pass@db:5432/sensor_db
       - DEBUG=false
@@ -20,7 +20,7 @@ services:
 
   # Base de datos PostgreSQL
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: sensor-db-prod
     environment:
       - POSTGRES_DB=sensor_db
